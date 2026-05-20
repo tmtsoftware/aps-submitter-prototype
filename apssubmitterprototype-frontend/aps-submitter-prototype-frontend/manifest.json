@@ -1,6 +1,0 @@
-{
-  "short_name": "aps-submitter-prototype-frontend",
-  "name": "aps-submitter-prototype-frontend",
-  "start_url": "./index.html",
-  "display": "standalone"
-}
