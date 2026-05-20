@@ -13,3 +13,15 @@ yarn.lock
 .DS_Store
 target
 **/web_modules/*
+# Frontend
+apssubmitterprototype-frontend/node_modules/
+apssubmitterprototype-frontend/dist/
+
+# Backend
+apssubmitterprototype-backend/target/
+apssubmitterprototype-backend/.bsp/
+
+# General
+.DS_Store
+*.class
+*.tasty
