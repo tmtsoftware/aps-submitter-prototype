@@ -36,8 +36,10 @@ npm test
 
 # ESW Gateway Keycloak Setup
 
-This documents the one-time Keycloak configuration required to use the ESW Gateway
+This documents the  Keycloak configuration required to use the ESW Gateway
 with a frontend app in a CSW/ESW development environment.
+
+Each time csw-services is restarted, these steps must be performed, as Keycloak is reset each time CSW is restarted.
 
 ## Context
 
