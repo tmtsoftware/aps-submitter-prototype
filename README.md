@@ -56,6 +56,9 @@ client by default, and tokens issued to the frontend do not include `tmt-backend
 in their audience. The gateway rejects all tokens silently with 403 Forbidden and
 `x-tmt-username: unknown` in request headers.
 
+## TODO
+This set of steps was derived by AI after hours of trial and error.  These need to be tested once again to verify they work and are necessary.  
+
 ## Required Setup Steps
 
 ### Step 1 — Get an admin token
