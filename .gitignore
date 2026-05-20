@@ -1,0 +1,15 @@
+.idea
+.vscode
+target
+dist
+build
+node_modules
+*.iml
+coverage
+nohup.out
+.vscode/*
+yarn.lock
+*.tsbuildinfo
+.DS_Store
+target
+**/web_modules/*
