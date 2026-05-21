@@ -1,35 +1,107 @@
-# aps-submitter-prototype-frontend
+# aps-submitter-prototype
 
-This project is a sample React web application.
+This project is contains a React web application subproject that submits sequences, and a backend service that read them from configuration.  See README files for each of these subprojects for details on build, run, etc.
 
-## Prerequisites Required for Running App
+# Startup Guide
 
-The latest version of [Node.js](https://nodejs.org/en/download/package-manager/) must be installed.
-
-## Run the App in Local Environment
-
-Run following commands in the terminal.
-
-   ```bash
-   npm install
-   npm start
-   ```
-
-Then, open [localhost:8080](http://localhost:8080) in a browser
-
-## Build the App for Production
-
-Run following commands in the terminal.
+## 1. Start CSW Services
 
 ```bash
-npm install
-npm run build
+csw-services start --location --auth --config --event --database
 ```
 
-## Running Tests
+## 2. Start ESW Gateway
 
 ```bash
-npm test
+cat > /tmp/command-role-mapping.conf << 'EOF'
+APS.primary.startSequence: [esw-user]
+EOF
+
+esw-gateway-server start -p 8090 -l -c /tmp/command-role-mapping.conf
+```
+
+> **Note:** The `esw-user` role in the command role mapping is temporary to get things started.
+
+## 3. Start APS Sequencer
+
+```bash
+cd ~/Desktop/Prototyping/aps-sequencer-prototype
+sbt "runner/run sequencer -s APS -n primary -m APS_software_only_mode"
+```
+
+## 4. Start Submitter Backend
+
+```bash
+cd ~/Desktop/Prototyping/aps-submitter-prototype/apssubmitterprototype-backend
+source ~/.zshrc
+sbt "run start --port 8084"
+```
+
+## 5. Start Submitter Frontend
+
+```bash
+cd ~/Desktop/Prototyping/aps-submitter-prototype/apssubmitterprototype-frontend
+npm start
+```
+
+## 6. Load Sequence Data into Config Service
+
+Generate and store the sequence file:
+
+```bash
+python3 -c "
+import json
+source = 'APS.sequenceSubmitter'
+matrix = [[0.0] * 3 for _ in range(492)]
+actuatorOffsets = {
+    'FloatMatrixKey': {
+        'keyName': 'actuatorOffsets',
+        'values': [matrix],
+        'units': 'millimeter'
+    }
+}
+sequence = [
+    {'_type': 'Setup', 'source': source, 'commandName': 'calc-colorstep', 'paramSet': []},
+    {'_type': 'Setup', 'source': source, 'commandName': 'cmd-m1cs-moves', 'paramSet': [actuatorOffsets]},
+    {'_type': 'Setup', 'source': source, 'commandName': 'calc-tt-offsets-to-acts', 'paramSet': []},
+    {'_type': 'Setup', 'source': source, 'commandName': 'calc-decompose-acts', 'paramSet': []}
+]
+print(json.dumps(sequence, indent=2))
+" > ~/aps-sequence.json
+
+cs launch csw-config-cli -- create /aps/sequences/testmode.json \
+  --in ~/aps-sequence.json \
+  --comment "APS software-only mode test sequence"
+```
+
+> **Note:** If the file already exists from a previous run, use `update` instead of `create`,
+> then set it as the active version:
+> ```bash
+> cs launch csw-config-cli -- update /aps/sequences/testmode.json \
+>   --in ~/aps-sequence.json \
+>   --comment "update"
+>
+> cs launch csw-config-cli -- setActiveVersion /aps/sequences/testmode.json \
+>   --id <version-id> --comment "set active"
+> ```
+
+## 7. Submit a Sequence
+
+1. Open `http://localhost:3000` in a browser
+2. Log in with `esw-user1` / `esw-user1`
+3. Enter config service path: `/aps/sequences/testmode.json`
+4. Click **Load Template**
+5. Click **Submit Sequence**
+
+Expected response:
+```json
+{
+  "_type": "Completed",
+  "runId": "...",
+  "result": {
+    "paramSet": []
+  }
+}
 ```
 
 
