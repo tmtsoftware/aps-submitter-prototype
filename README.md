@@ -1,8 +1,14 @@
 # aps-submitter-prototype
 
-This project is contains a React web application subproject that submits sequences, and a backend service that read them from configuration.  See README files for each of these subprojects for details on build, run, etc.
+This project contains a React web application subproject that submits sequences, and a backend service that read them from configuration.  See README files for each of these subprojects for details on build, run, etc.
 
-# Startup Guide
+
+# APS Submitter Prototype — Startup Guide
+
+> **Important:** Keycloak and the Config Service reset on every `csw-services` restart.
+> Steps 2, 3, and 7 must be repeated each time.
+
+---
 
 ## 1. Start CSW Services
 
@@ -10,26 +16,53 @@ This project is contains a React web application subproject that submits sequenc
 csw-services start --location --auth --config --event --database
 ```
 
-## 2. Start ESW Gateway
+## 2. Run Auth Setup Script
+
+Must be run after every `csw-services` restart and before starting the ESW Gateway.
+
+```bash
+cd ~/Desktop/Prototyping/aps-submitter-prototype
+./scripts/setup-tmt-auth.sh
+```
+
+Expected output:
+```
+==> Getting admin token...
+    OK
+==> Creating tmt-backend-app client...
+    OK
+==> Getting tmt-frontend-app client UUID...
+    OK (UUID: ...)
+==> Adding tmt-backend-app audience mapper to tmt-frontend-app...
+    OK
+==> Getting esw-user1 user ID...
+    OK (UUID: ...)
+==> Getting aps-user role ID...
+    OK (UUID: ...)
+==> Assigning aps-user role to esw-user1...
+    OK
+
+Auth setup complete. You can now start the ESW Gateway.
+```
+
+## 3. Start ESW Gateway
 
 ```bash
 cat > /tmp/command-role-mapping.conf << 'EOF'
-APS.primary.startSequence: [esw-user]
+APS.primary.startSequence: [aps-user]
 EOF
 
 esw-gateway-server start -p 8090 -l -c /tmp/command-role-mapping.conf
 ```
 
-> **Note:** The `esw-user` role in the command role mapping is temporary to get things started.
-
-## 3. Start APS Sequencer
+## 4. Start APS Sequencer
 
 ```bash
 cd ~/Desktop/Prototyping/aps-sequencer-prototype
 sbt "runner/run sequencer -s APS -n primary -m APS_software_only_mode"
 ```
 
-## 4. Start Submitter Backend
+## 5. Start Submitter Backend
 
 ```bash
 cd ~/Desktop/Prototyping/aps-submitter-prototype/apssubmitterprototype-backend
@@ -37,16 +70,16 @@ source ~/.zshrc
 sbt "run start --port 8084"
 ```
 
-## 5. Start Submitter Frontend
+## 6. Start Submitter Frontend
 
 ```bash
 cd ~/Desktop/Prototyping/aps-submitter-prototype/apssubmitterprototype-frontend
 npm start
 ```
 
-## 6. Load Sequence Data into Config Service
+## 7. Load Sequence Data into Config Service
 
-Generate and store the sequence file:
+Must be run after every `csw-services` restart (Config Service resets too).
 
 ```bash
 python3 -c "
@@ -69,27 +102,18 @@ sequence = [
 print(json.dumps(sequence, indent=2))
 " > ~/aps-sequence.json
 
+cs launch csw-config-cli -- login
+
 cs launch csw-config-cli -- create /aps/sequences/testmode.json \
   --in ~/aps-sequence.json \
   --comment "APS software-only mode test sequence"
 ```
 
-> **Note:** If the file already exists from a previous run, use `update` instead of `create`,
-> then set it as the active version:
-> ```bash
-> cs launch csw-config-cli -- update /aps/sequences/testmode.json \
->   --in ~/aps-sequence.json \
->   --comment "update"
->
-> cs launch csw-config-cli -- setActiveVersion /aps/sequences/testmode.json \
->   --id <version-id> --comment "set active"
-> ```
+## 8. Use the App
 
-## 7. Submit a Sequence
-
-1. Open `http://localhost:3000` in a browser
+1. Open `http://localhost:3000`
 2. Log in with `esw-user1` / `esw-user1`
-3. Enter config service path: `/aps/sequences/testmode.json`
+3. Enter config path: `/aps/sequences/testmode.json`
 4. Click **Load Template**
 5. Click **Submit Sequence**
 
@@ -98,162 +122,23 @@ Expected response:
 {
   "_type": "Completed",
   "runId": "...",
-  "result": {
-    "paramSet": []
-  }
+  "result": { "paramSet": [] }
 }
 ```
 
-
-
-# ESW Gateway Keycloak Setup
-
-This documents the  Keycloak configuration required to use the ESW Gateway
-with a frontend app in a CSW/ESW development environment.
-
-Each time csw-services is restarted, these steps must be performed, as Keycloak is reset each time CSW is restarted.
-
-## Context
-
-- CSW services started with: `csw-services start --location --auth --config --event --database`
-- Keycloak admin console: `http://localhost:8081` (login: `admin`/`admin`)
-- Keycloak API base: `http://localhost:8081/admin/realms/TMT`
-- ESW Gateway started with: `esw-gateway-server start -p 8090 -l -c /tmp/command-role-mapping.conf`
-- The gateway's `auth-config` (in its `application.conf`) references `client-id = tmt-backend-app` and `realm = TMT`
-
-## Problem
-
-The embedded Keycloak that `csw-services` starts does not include a `tmt-backend-app`
-client by default, and tokens issued to the frontend do not include `tmt-backend-app`
-in their audience. The gateway rejects all tokens silently with 403 Forbidden and
-`x-tmt-username: unknown` in request headers.
-
-## TODO
-This set of steps was derived by AI after hours of trial and error.  These need to be tested once again to verify they work and are necessary.  
-
-## Required Setup Steps
-
-### Step 1 — Get an admin token
-
-Run this first. The token expires in 60 seconds so run subsequent steps quickly,
-or re-run this line before each step.
-
-```bash
-TOKEN=$(curl -s -X POST "http://localhost:8081/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin&grant_type=password&client_id=admin-cli" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-```
-
-### Step 2 — Create the `tmt-backend-app` client
-
-The gateway validates tokens against this client. It must exist in the TMT realm.
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  "http://localhost:8081/admin/realms/TMT/clients" \
-  -d '{"clientId": "tmt-backend-app", "enabled": true, "publicClient": true, "bearerOnly": false}'
-```
-
-### Step 3 — Find the `tmt-frontend-app` client ID
-
-The frontend app uses `tmt-frontend-app`. You need its internal Keycloak UUID to
-add a mapper to it.
-
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8081/admin/realms/TMT/clients?clientId=tmt-frontend-app" \
-  | python3 -m json.tool | grep '"id"' | head -1
-```
-
-Note the UUID value (e.g. `963dec63-a99f-4030-ad4e-57efe8c00207`).
-
-### Step 4 — Add `tmt-backend-app` audience mapper to `tmt-frontend-app`
-
-This adds `tmt-backend-app` to the `aud` claim of tokens issued by `tmt-frontend-app`,
-which the gateway requires for token validation.
-
-Replace `<CLIENT-UUID>` with the UUID from Step 3.
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  "http://localhost:8081/admin/realms/TMT/clients/<CLIENT-UUID>/protocol-mappers/models" \
-  -d '{
-    "name": "tmt-backend-app-audience",
-    "protocol": "openid-connect",
-    "protocolMapper": "oidc-audience-mapper",
-    "consentRequired": false,
-    "config": {
-      "included.client.audience": "tmt-backend-app",
-      "id.token.claim": "false",
-      "access.token.claim": "true"
-    }
-  }'
-```
-
-### Step 5 — Assign `aps-user` role to your user
-
-The gateway checks for `{subsystem}-user` role for sequencer commands. For APS
-sequencer submissions the user needs `aps-user`.
-
-First, find the user ID:
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8081/admin/realms/TMT/users" \
-  | python3 -m json.tool | grep -E '"id"|"username"'
-```
-
-Then get the `aps-user` role ID:
-```bash
-ROLE_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8081/admin/realms/TMT/roles/aps-user" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-```
-
-Then assign the role (replace `<USER-UUID>` with the user's ID):
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  "http://localhost:8081/admin/realms/TMT/users/<USER-UUID>/role-mappings/realm" \
-  -d "[{\"id\": \"$ROLE_ID\", \"name\": \"aps-user\"}]"
-```
-
-### Step 6 — Create the command role mapping file
-
-The gateway requires a command role mapping file. For APS sequencer access:
-
-```bash
-cat > /tmp/command-role-mapping.conf << 'CONF'
-APS.primary.startSequence: [aps-user]
-CONF
-```
-
-### Step 7 — Start the gateway
-
-```bash
-esw-gateway-server start -p 8090 -l -c /tmp/command-role-mapping.conf
-```
-
-### Step 8 — Log in as a user with `aps-user` role
-
-In the frontend app, log in as the user you assigned `aps-user` to in Step 5.
-The predefined user `esw-user1` (password: `esw-user1`) is a good choice after
-assigning `aps-user` to it.
+---
 
 ## Notes
 
-- Steps 2–5 only need to be done once per Keycloak instance. They persist across
-  gateway and service restarts as long as `csw-services` is not restarted.
-- If `csw-services` is restarted, Keycloak resets and all steps must be repeated.
-- The `tmt-frontend-app` client UUID and user UUIDs are specific to each Keycloak
-  instance — always look them up rather than hardcoding them.
 - The Keycloak admin UI at `http://localhost:8081` only shows the `master` realm.
-  The TMT realm is created programmatically and must be managed via the API.
-- The predefined users in the TMT realm (all with password = username) are:
-  `config-admin1`, `config-user1`, `dummy-user`, `esw-user1`, `iris-user1`,
-  `osw-user1`, `tcs-user1`, `wfos-user1`
+  The TMT realm must be managed via the API — the `setup-tmt-auth.sh` script handles this.
+- Predefined TMT realm users (password = username):
+  `esw-user1`, `config-admin1`, `config-user1`, `iris-user1`, `tcs-user1`, `wfos-user1`
+- The Config Service resets on `csw-services` restart — sequence files must be re-uploaded each time.
+- Why `tmt-backend-app` must be created manually: the ESW Gateway's `application.conf` references
+  this client for token validation, but the embedded Keycloak from `csw-services` does not include
+  it by default. This appears to be a gap in the development tooling.
+
 
 
 
