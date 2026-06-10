@@ -8,6 +8,7 @@ This project contains a React web application subproject that submits sequences,
 > **Important:** Keycloak and the Config Service reset on every `csw-services` restart.
 > Steps 2, 3, and 7 must be repeated each time.
 
+This guide assumes all projects are downloaded to the user's Desktop/Prototyping directory, which should be updated to something like $(PROTOTYPING_DIR)
 ---
 
 ## 1. Start CSW Services
@@ -109,7 +110,21 @@ cs launch csw-config-cli -- create /aps/sequences/testmode.json \
   --comment "APS software-only mode test sequence"
 ```
 
-## 8. Use the App
+## 8 Start the Computation Assembly
+
+```bash
+cd ~/Desktop/Prototyping/aps-computation-assembly-prototype
+sbt "aps-computationprototypedeploy/runMain aps.computationprototypedeploy.ComputationprototypeContainerCmdApp --local ./src/main/resources/JComputationprototypeassemblyStandalone.conf"
+```
+
+### 9 Start the Procedure Data Service
+
+```bash
+cd ~/Desktop/Prototyping/aps-procedure-data-service
+DB_READ_USERNAME=admin DB_READ_PASSWORD=Zernike1 DB_WRITE_USERNAME=admin DB_WRITE_PASSWORD=Zernike1 sbt "run start -p 8084"
+```
+
+## 10. Use the App
 
 1. Open `http://localhost:3000`
 2. Log in with `esw-user1` / `esw-user1`
