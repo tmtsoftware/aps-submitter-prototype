@@ -8,7 +8,7 @@ This project contains a React web application subproject that submits sequences,
 > **Important:** Keycloak and the Config Service reset on every `csw-services` restart.
 > Steps 2, 3, and 7 must be repeated each time.
 
-> **Important:** This guide assumes all projects are downloaded to the user's Desktop/Prototyping directory, which should be updated to something like $(GIT_HOME) or $(PROTOTYPING_HOME)
+> **Important:** This guide assumes all projects are downloaded to the user's Desktop/Prototyping directory, which should be updated to something like \$(GIT_HOME) or \$(PROTOTYPING_HOME)
 
 ---
 
