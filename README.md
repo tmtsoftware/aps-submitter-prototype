@@ -84,10 +84,7 @@ npm start
 Must be run after every `csw-services` restart (Config Service resets too).
 
 ```bash
-cs launch csw-config-cli -- delete /aps/sequences/testmode.json
-cs launch csw-config-cli -- create /aps/sequences/testmode.json \
-  --in apssubmitterprototype-backend/src/main/resources/sequences/testmode.json \
-  --comment "APS software-only mode test sequence"
+~/Desktop/Prototyping/aps-submitter-prototype/scripts/setup-config.sh
 ```
 
 ## 8. Start the Computation Assembly
