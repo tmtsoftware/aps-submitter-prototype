@@ -84,7 +84,8 @@ npm start
 Must be run after every `csw-services` restart (Config Service resets too).
 
 ```bash
-~/Desktop/Prototyping/aps-submitter-prototype/scripts/setup-config.sh
+cd ~/Desktop/Prototyping/aps-submitter-prototype
+./scripts/setup-config.sh
 ```
 
 ## 8. Start the Computation Assembly
