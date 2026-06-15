@@ -69,7 +69,7 @@ sbt "runner/run sequencer -s APS -n primary -m APS_software_only_mode"
 ```bash
 cd ~/Desktop/Prototyping/aps-submitter-prototype/apssubmitterprototype-backend
 source ~/.zshrc
-sbt "run start --port 8084"
+sbt "run start --port 8085"
 ```
 
 ## 6. Start Submitter Frontend
