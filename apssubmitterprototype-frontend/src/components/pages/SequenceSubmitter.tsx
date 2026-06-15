@@ -69,7 +69,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
 
     try {
       const componentId = new ComponentId(
-        new Prefix('APS', 'APS_software_only_mode'),
+        new Prefix('APS', 'apsPeasSequencerA_SoftwareOnlyMode'),
         'Sequencer'
       )
       const sequencerService = await SequencerService(componentId, {
@@ -209,6 +209,9 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                 <Tag color={tagColor(event.type)} style={{ margin: 0 }}>
                   {event.type}
                 </Tag>
+                <Text type='secondary' style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                  [{event.source}]
+                </Text>
                 <Text>{event.messageId}</Text>
               </div>
             ))}
