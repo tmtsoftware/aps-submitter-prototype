@@ -84,30 +84,9 @@ npm start
 Must be run after every `csw-services` restart (Config Service resets too).
 
 ```bash
-python3 -c "
-import json
-source = 'APS.sequenceSubmitter'
-matrix = [[0.0] * 3 for _ in range(492)]
-actuatorOffsets = {
-    'FloatMatrixKey': {
-        'keyName': 'actuatorOffsets',
-        'values': [matrix],
-        'units': 'millimeter'
-    }
-}
-sequence = [
-    {'_type': 'Setup', 'source': source, 'commandName': 'calc-colorstep', 'paramSet': []},
-    {'_type': 'Setup', 'source': source, 'commandName': 'cmd-m1cs-moves', 'paramSet': [actuatorOffsets]},
-    {'_type': 'Setup', 'source': source, 'commandName': 'calc-tt-offsets-to-acts', 'paramSet': []},
-    {'_type': 'Setup', 'source': source, 'commandName': 'calc-decompose-acts', 'paramSet': []}
-]
-print(json.dumps(sequence, indent=2))
-" > ~/aps-sequence.json
-
-cs launch csw-config-cli -- login
-
+cs launch csw-config-cli -- delete /aps/sequences/testmode.json
 cs launch csw-config-cli -- create /aps/sequences/testmode.json \
-  --in ~/aps-sequence.json \
+  --in apssubmitterprototype-backend/src/main/resources/sequences/testmode.json \
   --comment "APS software-only mode test sequence"
 ```
 
