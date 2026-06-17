@@ -11,7 +11,13 @@ import { getBackendUrl } from '../../utils/resolveBackend'
 import { useLocationService } from '../../contexts/LocationServiceContext'
 import { useAuth } from '../../hooks/useAuth'
 import { useProcedureEvents } from '../../hooks/useProcedureEvents'
+import { usePublishUserPromptResponse } from '../../hooks/usePublishUserPromptResponse'
 import type { ProcedureEventType } from '../../models/ProcedureEvent'
+import type {
+  DecisionResponse,
+  ErrorResponse,
+  OriginatingPromptType
+} from '../../models/UserPromptResponseEvent'
 import exposurePlaceholderImg from '../../assets/images/psh_exposure_placeholder.png'
 
 const { Text } = Typography
@@ -120,13 +126,52 @@ export const SequenceSubmitter = (): React.JSX.Element => {
   const [exposureIteration] = useState<number>(0)
 
   const { events, error: eventError, clear: clearEvents } = useProcedureEvents(true)
+  const { publishResponse } = usePublishUserPromptResponse()
   const eventLogRef = useRef<HTMLDivElement>(null)
 
-  // Tracks user responses to USER_PROMPT dialogs: event index → button label
-  const [promptResponses, setPromptResponses] = useState<Record<number, string>>({})
+  // Tracks user responses to USER_PROMPT dialogs, keyed by the originating
+  // event's messageUuid (unique per prompt invocation - messageId itself is
+  // a stable, reused, human-readable string and is NOT a safe key here).
+  // Records the button label shown to the operator and tracks publish
+  // failures separately so the UI can offer a retry without losing the fact
+  // that the operator already clicked.
+  const [promptResponses, setPromptResponses] = useState<Record<string, string>>({})
+  const [promptPublishErrors, setPromptPublishErrors] = useState<Record<string, string>>({})
 
-  const handlePromptResponse = (index: number, response: string) => {
-    setPromptResponses(prev => ({ ...prev, [index]: response }))
+  const handlePromptResponse = async (
+    sourcePrefix: string,
+    originatingPromptType: OriginatingPromptType,
+    originatingMessageId: string,
+    originatingMessageUuid: string,
+    label: string,
+    decisionResponse: DecisionResponse,
+    errorResponse: ErrorResponse
+  ) => {
+    setPromptResponses(prev => ({ ...prev, [originatingMessageUuid]: label }))
+    setPromptPublishErrors(prev => {
+      const { [originatingMessageUuid]: _removed, ...rest } = prev
+      return rest
+    })
+    try {
+      await publishResponse(sourcePrefix, {
+        originatingPromptType,
+        originatingMessageId,
+        originatingMessageUuid,
+        decisionResponse,
+        errorResponse
+      })
+    } catch (e) {
+      // Publish failed - clear the recorded response so the buttons
+      // reappear, and surface the error so the operator can retry.
+      setPromptResponses(prev => {
+        const { [originatingMessageUuid]: _removed, ...rest } = prev
+        return rest
+      })
+      setPromptPublishErrors(prev => ({
+        ...prev,
+        [originatingMessageUuid]: e instanceof Error ? e.message : String(e)
+      }))
+    }
   }
 
   useEffect(() => {
@@ -416,24 +461,53 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                             event.type === 'USER_PROMPT' ? (
                               <div key={i} style={styles.promptCard}>
                                 <div style={styles.promptHeader}>
-                                  <span style={styles.promptWarningIcon}>⚠</span>
-                                  <span style={styles.promptTitle}>WARNING</span>
+                                  <span style={styles.promptWarningIcon}>
+                                    {event.dialogKey === 'DECISION' ? '?' : '⚠'}
+                                  </span>
+                                  <span style={styles.promptTitle}>
+                                    {event.dialogKey === 'DECISION' ? 'DECISION REQUIRED' : 'WARNING'}
+                                  </span>
                                   <span style={seqTagStyle(sequencerLabel(event.source))}>{sequencerLabel(event.source)}</span>
                                 </div>
                                 <div style={styles.promptBody}>
                                   <Text style={{ fontSize: 13 }}>{event.messageId}</Text>
                                 </div>
-                                {promptResponses[i] ? (
+                                {promptResponses[event.messageUuid] ? (
                                   <div style={styles.promptResolved}>
                                     <Text type="secondary" style={{ fontSize: 11 }}>
-                                      Operator responded: <strong>"{promptResponses[i]}"</strong>
+                                      Operator responded: <strong>"{promptResponses[event.messageUuid]}"</strong>
                                     </Text>
+                                  </div>
+                                ) : event.dialogKey === 'DECISION' ? (
+                                  <div style={styles.promptButtons}>
+                                    <Button size="small" onClick={() => handlePromptResponse(
+                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'Yes', 'YES', 'N/A'
+                                    )}>Yes</Button>
+                                    <Button size="small" onClick={() => handlePromptResponse(
+                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'No', 'NO', 'N/A'
+                                    )}>No</Button>
+                                    <Button size="small" danger onClick={() => handlePromptResponse(
+                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'Abort', 'ABORT', 'N/A'
+                                    )}>Abort</Button>
                                   </div>
                                 ) : (
                                   <div style={styles.promptButtons}>
-                                    <Button size="small" onClick={() => handlePromptResponse(i, 'Continue')}>Continue</Button>
-                                    <Button size="small" onClick={() => handlePromptResponse(i, 'Retry')}>Retry</Button>
-                                    <Button size="small" danger onClick={() => handlePromptResponse(i, 'Abort')}>Abort</Button>
+                                    <Button size="small" onClick={() => handlePromptResponse(
+                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Continue', 'N/A', 'CONTINUE'
+                                    )}>Continue</Button>
+                                    <Button size="small" onClick={() => handlePromptResponse(
+                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Retry', 'N/A', 'RETRY'
+                                    )}>Retry</Button>
+                                    <Button size="small" danger onClick={() => handlePromptResponse(
+                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Abort', 'N/A', 'ABORT'
+                                    )}>Abort</Button>
+                                  </div>
+                                )}
+                                {promptPublishErrors[event.messageUuid] && (
+                                  <div style={styles.promptResolved}>
+                                    <Text type="danger" style={{ fontSize: 11 }}>
+                                      Failed to send response: {promptPublishErrors[event.messageUuid]}
+                                    </Text>
                                   </div>
                                 )}
                               </div>
