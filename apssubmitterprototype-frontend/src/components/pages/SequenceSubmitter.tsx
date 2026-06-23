@@ -6,7 +6,7 @@ import {
 } from '@tmtsoftware/esw-ts'
 import { Button, Input, Tabs, Typography, Alert, Badge, Tag } from 'antd'
 import React, { useState, useRef, useEffect } from 'react'
-import { loadSequence } from '../../utils/api'
+import { loadTemplate, buildSequence } from '../../utils/api'
 import { getBackendUrl } from '../../utils/resolveBackend'
 import { useLocationService } from '../../contexts/LocationServiceContext'
 import { useAuth } from '../../hooks/useAuth'
@@ -115,10 +115,13 @@ export const SequenceSubmitter = (): React.JSX.Element => {
   const isAuthenticated = auth?.isAuthenticated() ?? false
 
   const [configPath, setConfigPath] = useState<string>('')
-  const [sequenceJson, setSequenceJson] = useState<unknown | undefined>(undefined)
+  const [templateJson, setTemplateJson] = useState<unknown | undefined>(undefined)
+  const [builtSequenceJson, setBuiltSequenceJson] = useState<unknown | undefined>(undefined)
   const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [buildStatus, setBuildStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [loadError, setLoadError] = useState<string | undefined>(undefined)
+  const [buildError, setBuildError] = useState<string | undefined>(undefined)
   const [submitError, setSubmitError] = useState<string | undefined>(undefined)
   const [activeTab, setActiveTab] = useState<string>('setup')
   const [benchTab, setBenchTab] = useState<'LOWFS' | 'PSH' | 'PIT' | 'APT'>('PSH')
@@ -207,15 +210,18 @@ export const SequenceSubmitter = (): React.JSX.Element => {
     if (!configPath.trim()) return
     setLoadStatus('loading')
     setLoadError(undefined)
-    setSequenceJson(undefined)
+    setTemplateJson(undefined)
+    setBuiltSequenceJson(undefined)
+    setBuildStatus('idle')
+    setBuildError(undefined)
     setSubmitStatus('idle')
     setSubmitError(undefined)
     clearEvents()
     try {
       const baseUrl = await getBackendUrl(locationService)
       if (!baseUrl) throw new Error('Backend not available')
-      const json = await loadSequence(baseUrl, configPath.trim())
-      setSequenceJson(json)
+      const json = await loadTemplate(baseUrl, configPath.trim())
+      setTemplateJson(json)
       setLoadStatus('success')
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
@@ -223,8 +229,28 @@ export const SequenceSubmitter = (): React.JSX.Element => {
     }
   }
 
+  const handleBuildSequence = async () => {
+    if (!templateJson) return
+    setBuildStatus('loading')
+    setBuildError(undefined)
+    setBuiltSequenceJson(undefined)
+    setSubmitStatus('idle')
+    setSubmitError(undefined)
+    clearEvents()
+    try {
+      const baseUrl = await getBackendUrl(locationService)
+      if (!baseUrl) throw new Error('Backend not available')
+      const json = await buildSequence(baseUrl, templateJson)
+      setBuiltSequenceJson(json)
+      setBuildStatus('success')
+    } catch (e) {
+      setBuildError(e instanceof Error ? e.message : String(e))
+      setBuildStatus('error')
+    }
+  }
+
   const handleSubmitSequence = async () => {
-    if (!sequenceJson) return
+    if (!builtSequenceJson) return
     clearEvents()
     setSubmitStatus('loading')
     setSubmitError(undefined)
@@ -238,7 +264,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
       const sequencerService = await SequencerService(componentId, {
         tokenFactory: () => auth?.token()
       })
-      const sequence = Sequence.from(sequenceJson)
+      const sequence = Sequence.from(builtSequenceJson)
       const result = await sequencerService.submitAndWait(sequence, 60)
       if (result._type === 'Completed') {
         setSubmitStatus('success')
@@ -314,7 +340,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                   type="primary"
                   onClick={handleSubmitSequence}
                   loading={submitStatus === 'loading'}
-                  disabled={!sequenceJson}
+                  disabled={!builtSequenceJson}
                   size="small"
                 >
                   Start
@@ -409,13 +435,37 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                       </div>
                       {loadError && <Alert type="error" message={loadError} showIcon style={{ marginTop: 10 }} />}
                       {eventError && <Alert type="error" message={`Event subscription: ${eventError}`} showIcon style={{ marginTop: 10 }} />}
-                      {loadStatus === 'success' && sequenceJson && (
+                      {loadStatus === 'success' && templateJson && (
                         <div style={styles.setupJsonSection}>
-                          <div style={styles.setupJsonLabel}>Loaded Sequence</div>
+                          <div style={styles.setupJsonLabel}>Template</div>
                           <TextArea
                             readOnly
-                            rows={16}
-                            value={JSON.stringify(sequenceJson, null, 2)}
+                            rows={10}
+                            value={JSON.stringify(templateJson, null, 2)}
+                            style={{ fontFamily: 'monospace', fontSize: 11 }}
+                          />
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Button
+                              type="primary"
+                              onClick={handleBuildSequence}
+                              loading={buildStatus === 'loading'}
+                            >
+                              Build Sequence
+                            </Button>
+                            {buildStatus === 'success' && (
+                              <span style={{ fontSize: 12, color: '#52c41a' }}>✓ Sequence built</span>
+                            )}
+                          </div>
+                          {buildError && <Alert type="error" message={buildError} showIcon style={{ marginTop: 10 }} />}
+                        </div>
+                      )}
+                      {buildStatus === 'success' && builtSequenceJson && (
+                        <div style={styles.setupJsonSection}>
+                          <div style={styles.setupJsonLabel}>Built Sequence</div>
+                          <TextArea
+                            readOnly
+                            rows={10}
+                            value={JSON.stringify(builtSequenceJson, null, 2)}
                             style={{ fontFamily: 'monospace', fontSize: 11 }}
                           />
                           <Button
@@ -434,7 +484,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
               {
                 key: 'run',
                 label: 'Run Procedure',
-                disabled: !sequenceJson,
+                disabled: !builtSequenceJson,
                 children: (
                   <div style={styles.runLayout}>
 

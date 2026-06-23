@@ -545,6 +545,14 @@
     "_type": "Setup",
     "source": "APS.sequenceSubmitter",
     "commandName": "send-sequence-to-sequencerB",
-    "paramSet": []
+    "paramSet": [
+      {
+        "StringKey": {
+          "keyName": "sequencerBSequence",
+          "values": ["REF:/aps/sequences/peas-sequencer-b-testmode.json"],
+          "units": "NoUnits"
+        }
+      }
+    ]
   }
 ]

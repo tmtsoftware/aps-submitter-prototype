@@ -9,32 +9,47 @@
 
 set -e
 
-LOCAL_FILE="apssubmitterprototype-backend/src/main/resources/sequences/testmode.json"
-CONFIG_PATH="/aps/sequences/testmode.json"
-
-if [ ! -f "$LOCAL_FILE" ]; then
-  echo "ERROR: $LOCAL_FILE not found."
-  exit 1
-fi
-
 cs launch csw-config-cli -- login
 
-EXISTS=$(cs launch csw-config-cli -- exists "$CONFIG_PATH" 2>/dev/null)
+upload_config() {
+  local LOCAL_FILE="$1"
+  local CONFIG_PATH="$2"
+  local COMMENT="$3"
 
-if echo "$EXISTS" | grep -q "true"; then
-  echo "File exists — updating."
-  cs launch csw-config-cli -- update "$CONFIG_PATH" \
-    --in "$LOCAL_FILE" \
-    --comment "APS software-only mode test sequence (updated)"
-else
-  echo "File not found — creating."
-  cs launch csw-config-cli -- create "$CONFIG_PATH" \
-    --in "$LOCAL_FILE" \
-    --comment "APS software-only mode test sequence"
-fi
+  if [ ! -f "$LOCAL_FILE" ]; then
+    echo "ERROR: $LOCAL_FILE not found."
+    exit 1
+  fi
 
-cs launch csw-config-cli -- resetActiveVersion "$CONFIG_PATH" \
-  --comment "set active to latest"
+  EXISTS=$(cs launch csw-config-cli -- exists "$CONFIG_PATH" 2>/dev/null)
 
-echo ""
-echo "Config Service setup complete: $CONFIG_PATH"
+  if echo "$EXISTS" | grep -q "true"; then
+    echo "$CONFIG_PATH — exists, updating."
+    cs launch csw-config-cli -- update "$CONFIG_PATH" \
+      --in "$LOCAL_FILE" \
+      --comment "$COMMENT (updated)"
+  else
+    echo "$CONFIG_PATH — not found, creating."
+    cs launch csw-config-cli -- create "$CONFIG_PATH" \
+      --in "$LOCAL_FILE" \
+      --comment "$COMMENT"
+  fi
+
+  cs launch csw-config-cli -- resetActiveVersion "$CONFIG_PATH" \
+    --comment "set active to latest"
+
+  echo "Done: $CONFIG_PATH"
+  echo ""
+}
+
+upload_config \
+  "apssubmitterprototype-backend/src/main/resources/sequences/testmode.json" \
+  "/aps/sequences/testmode.json" \
+  "APS software-only mode test sequence"
+
+upload_config \
+  "apssubmitterprototype-backend/src/main/resources/sequences/peas-sequencer-b-testmode.json" \
+  "/aps/sequences/peas-sequencer-b-testmode.json" \
+  "APS PEAS Sequencer B test sequence"
+
+echo "Config Service setup complete."
