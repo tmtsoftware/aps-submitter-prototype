@@ -12,6 +12,7 @@ import { useLocationService } from '../../contexts/LocationServiceContext'
 import { useAuth } from '../../hooks/useAuth'
 import { useProcedureEvents } from '../../hooks/useProcedureEvents'
 import { usePublishUserPromptResponse } from '../../hooks/usePublishUserPromptResponse'
+import { useMessages } from '../../hooks/useMessages'
 import type { ProcedureEventType } from '../../models/ProcedureEvent'
 import type {
   DecisionResponse,
@@ -127,6 +128,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
 
   const { events, error: eventError, clear: clearEvents } = useProcedureEvents(true)
   const { publishResponse } = usePublishUserPromptResponse()
+  const { getMessage } = useMessages()
   const eventLogRef = useRef<HTMLDivElement>(null)
 
   // Tracks user responses to USER_PROMPT dialogs, keyed by the originating
@@ -470,7 +472,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                                   <span style={seqTagStyle(sequencerLabel(event.source))}>{sequencerLabel(event.source)}</span>
                                 </div>
                                 <div style={styles.promptBody}>
-                                  <Text style={{ fontSize: 13 }}>{event.messageId}</Text>
+                                  <Text style={{ fontSize: 13 }}>{getMessage(event.messageId)}</Text>
                                 </div>
                                 {promptResponses[event.messageUuid] ? (
                                   <div style={styles.promptResolved}>
@@ -524,7 +526,7 @@ export const SequenceSubmitter = (): React.JSX.Element => {
                                 <span style={seqTagStyle(sequencerLabel(event.source))}>
                                   {sequencerLabel(event.source)}
                                 </span>
-                                <Text style={{ fontSize: 11 }}>{event.messageId}</Text>
+                                <Text style={{ fontSize: 11 }}>{getMessage(event.messageId)}</Text>
                               </div>
                             )
                           ))
