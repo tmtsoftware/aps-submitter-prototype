@@ -1,8 +1,8 @@
-import type { LoadSequenceRequest } from '../models/Models'
+import type { LoadSequenceRequest, BuildSequenceRequest, SubstitutionParam } from '../models/Models'
 import { get, post } from './Http'
 
-const templatesUrl    = (baseUrl: string) => baseUrl + 'sequence/templates'
-const loadTemplateUrl = (baseUrl: string) => baseUrl + 'sequence/template'
+const templatesUrl     = (baseUrl: string) => baseUrl + 'sequence/templates'
+const loadTemplateUrl  = (baseUrl: string) => baseUrl + 'sequence/template'
 const buildSequenceUrl = (baseUrl: string) => baseUrl + 'sequence/build'
 
 export const fetchTemplates = async (baseUrl: string): Promise<string[]> => {
@@ -24,11 +24,13 @@ export const loadTemplate = async (
 
 export const buildSequence = async (
   baseUrl: string,
-  template: unknown
+  template: unknown,
+  substitutions: SubstitutionParam[] = []
 ): Promise<unknown> => {
-  const response = await post<unknown, unknown>(
+  const request: BuildSequenceRequest = { template, substitutions }
+  const response = await post<BuildSequenceRequest, unknown>(
     buildSequenceUrl(baseUrl),
-    template
+    request
   )
   return response.parsedBody
 }

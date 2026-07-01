@@ -1,0 +1,14 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfWaitM1CmdComplete",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfTakeSnapIfM1OrWhCmdSent",
+    "paramSet": []
+  }
+]

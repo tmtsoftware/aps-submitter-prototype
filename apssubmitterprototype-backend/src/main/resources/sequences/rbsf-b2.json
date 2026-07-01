@@ -1,0 +1,8 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfAskOpIfCmdM2",
+    "paramSet": []
+  }
+]

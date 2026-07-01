@@ -1,0 +1,32 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCmdM1IfRespOk",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcWhCmds",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfRenderWhDisplay",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfAskOpIfCmdWh",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCmdWhIfRespOk",
+    "paramSet": []
+  }
+]

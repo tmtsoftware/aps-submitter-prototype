@@ -1,0 +1,14 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCmdM2PttOrPxyIfRespOk",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfTakeSnapIfRespOk",
+    "paramSet": []
+  }
+]

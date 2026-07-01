@@ -1,0 +1,123 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "alignmentProcedureStartup",
+    "paramSet": [
+      {
+        "StringKey": {
+          "keyName": "filter",
+          "values": ["891nm"],
+          "units": "NoUnits"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "pupilMask",
+          "values": ["4"],
+          "units": "NoUnits"
+        }
+      }
+    ]
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfGetCurrentWhSettings",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfTakeExposureWhileProcessingPrevious",
+    "paramSet": [
+      {
+        "IntKey": {
+          "keyName": "exposureCount",
+          "values": [3],
+          "units": "NoUnits"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "rbsfB1SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-b1.json"],
+          "units": "NoUnits"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "rbsfC1SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-c1.json"],
+          "units": "NoUnits"
+        }
+      }
+    ]
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcAverages",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfRenderAvgCentroidOffsetsDisplay",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfRenderM1CmdsDisplay",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfAskOpIfCmdM1",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCmdM1CalcWhCmdsWhileAskOpCmdM2",
+    "paramSet": [
+      {
+        "StringKey": {
+          "keyName": "rbsfB2SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-b2.json"],
+          "units": "NoUnits"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "rbsfC2SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-c2.json"],
+          "units": "NoUnits"
+        }
+      }
+    ]
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfAskAndCmdWhWhileCmdM2",
+    "paramSet": [
+      {
+        "StringKey": {
+          "keyName": "rbsfB3SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-b3.json"],
+          "units": "NoUnits"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "rbsfC3SerializedSequence",
+          "values": ["REF:/aps/sequences/rbsf-c3.json"],
+          "units": "NoUnits"
+        }
+      }
+    ]
+  }
+]

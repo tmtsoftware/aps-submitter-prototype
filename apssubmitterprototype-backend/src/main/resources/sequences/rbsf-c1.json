@@ -1,0 +1,32 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcCentroidOffsets",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcM2PistonTipTilt",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcM2PistonXYDecenter",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcSegmentPistonTipTilt",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "rbsfCalcSegmentZernikes",
+    "paramSet": []
+  }
+]

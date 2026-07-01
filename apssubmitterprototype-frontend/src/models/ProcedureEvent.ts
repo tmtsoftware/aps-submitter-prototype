@@ -6,6 +6,7 @@ export type ProcedureEventType =
   | 'WARN_MESSAGE'
   | 'USER_PROMPT'
   | 'VIZ_DISPLAY'
+  | 'ITERATION'
 
 export interface ApsProcedureEvent {
   type: ProcedureEventType

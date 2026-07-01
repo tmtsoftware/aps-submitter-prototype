@@ -29,7 +29,7 @@ class ApsSubmitterPrototypeRoute(
       path("build") {
         post {
           entity(as[BuildSequenceRequest]) { request =>
-            complete(service.buildSequence(request.template))
+            complete(service.buildSequence(request.template, request.substitutions))
           }
         }
       }

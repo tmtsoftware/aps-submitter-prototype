@@ -1,0 +1,16 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "takeGoodExposure",
+    "paramSet": [
+      {
+        "FloatKey": {
+          "keyName": "intTime",
+          "values": [1.0],
+          "units": "second"
+        }
+      }
+    ]
+  }
+]

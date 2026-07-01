@@ -4,16 +4,17 @@ import {
   Sequence,
   SequencerService
 } from '@tmtsoftware/esw-ts'
-import { Button, Input, Tabs, Typography, Alert, Badge, Tag } from 'antd'
-import React, { useState, useRef, useEffect } from 'react'
+import { Button, Input, InputNumber, Tabs, Typography, Alert, Badge, Tag } from 'antd'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { loadTemplate, buildSequence } from '../../utils/api'
+import type { SubstitutionParam } from '../../models/Models'
 import { getBackendUrl } from '../../utils/resolveBackend'
 import { useLocationService } from '../../contexts/LocationServiceContext'
 import { useAuth } from '../../hooks/useAuth'
 import { useProcedureEvents } from '../../hooks/useProcedureEvents'
 import { usePublishUserPromptResponse } from '../../hooks/usePublishUserPromptResponse'
 import { useMessages } from '../../hooks/useMessages'
-import type { ProcedureEventType } from '../../models/ProcedureEvent'
+import type { ApsProcedureEvent } from '../../models/ProcedureEvent'
 import type {
   DecisionResponse,
   ErrorResponse,
@@ -28,28 +29,35 @@ const { TextArea } = Input
 
 const OBSERVING_MODE = 'APS Standalone'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface IterationTab {
+  n: number
+  events: ApsProcedureEvent[]
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const tagColor = (type: ProcedureEventType): string => {
+const tagColor = (type: ApsProcedureEvent['type']): string => {
   switch (type) {
     case 'INFO_MESSAGE': return 'blue'
     case 'WARN_MESSAGE': return 'orange'
     case 'USER_PROMPT':  return 'purple'
     case 'VIZ_DISPLAY':  return 'cyan'
+    case 'ITERATION':    return 'green'
   }
 }
 
-const eventTypeLabel = (type: ProcedureEventType): string => {
+const eventTypeLabel = (type: ApsProcedureEvent['type']): string => {
   switch (type) {
     case 'INFO_MESSAGE': return 'INFO'
     case 'WARN_MESSAGE': return 'WARN'
     case 'USER_PROMPT':  return 'PROMPT'
     case 'VIZ_DISPLAY':  return 'VIZ'
+    case 'ITERATION':    return 'ITER'
   }
 }
 
-// Extracts sequencer letter from source prefix e.g.
-// "APS.apsPeasSequencerA_SoftwareOnlyMode" → "A"
 const sequencerLabel = (source: string): string => {
   const match = source.match(/apsPeasSequencer([A-Z])/i)
   return match ? match[1].toUpperCase() : '?'
@@ -80,14 +88,12 @@ const seqTagStyle = (label: string): React.CSSProperties => {
   }
 }
 
+const formatTime = (eventTime: string): string =>
+  eventTime.includes('T') ? eventTime.split('T')[1].slice(0, 12) : eventTime
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-interface StatusPillProps {
-  label: string
-  value: string
-  color?: string
-}
-
+interface StatusPillProps { label: string; value: string; color?: string }
 const StatusPill = ({ label, value, color }: StatusPillProps) => (
   <div style={styles.statusPill}>
     <span style={styles.statusPillLabel}>{label}</span>
@@ -95,17 +101,143 @@ const StatusPill = ({ label, value, color }: StatusPillProps) => (
   </div>
 )
 
-interface BenchFieldProps {
-  label: string
-  value: string
-}
-
+interface BenchFieldProps { label: string; value: string }
 const BenchField = ({ label, value }: BenchFieldProps) => (
   <div style={styles.benchField}>
     <span style={styles.benchFieldLabel}>{label}</span>
     <span style={styles.benchFieldValue}>{value}</span>
   </div>
 )
+
+// Shared exposure image panel — shown in each iteration tab
+const ExposurePanel = () => (
+  <div style={styles.exposurePanel}>
+    <Tabs
+      size="small"
+      tabBarStyle={{ paddingLeft: 8, marginBottom: 0, background: '#fafafa', borderBottom: '1px solid #e0e0e0' }}
+      items={['Exposure', 'Centroids', 'Centroid Offsets'].map(t => ({
+        key: t, label: t, children: null
+      }))}
+    />
+    <div style={styles.exposureImageArea}>
+      <div style={styles.exposureFilename}>18JUL2034_PSH_BBP_001_1B.FTS</div>
+      <div style={{ ...styles.exposureImageWrap, position: 'relative' }}>
+        <img src={exposurePlaceholderImg} alt="PSH exposure" style={styles.exposureImage} />
+        <div style={styles.expandIcon} title="Expand to full screen">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polyline points="7,2 2,2 2,7"   stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
+            <polyline points="13,2 18,2 18,7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
+            <polyline points="2,13 2,18 7,18" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
+            <polyline points="18,13 18,18 13,18" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div style={styles.exposureFooter}>
+      <span style={styles.exposureFooterText}>pos: (–, –)</span>
+      <span style={styles.exposureFooterText}>Median Peak Intensity: –</span>
+    </div>
+  </div>
+)
+
+interface ProcedureLogProps {
+  events: ApsProcedureEvent[]
+  isLive: boolean
+  emptyMessage: string
+  promptResponses: Record<string, string>
+  promptPublishErrors: Record<string, string>
+  onPromptResponse: (
+    sourcePrefix: string,
+    originatingPromptType: OriginatingPromptType,
+    originatingMessageId: string,
+    originatingMessageUuid: string,
+    label: string,
+    decisionResponse: DecisionResponse,
+    errorResponse: ErrorResponse
+  ) => void
+  getMessage: (id: string) => string
+}
+
+const ProcedureLog = ({
+  events, isLive, emptyMessage,
+  promptResponses, promptPublishErrors,
+  onPromptResponse, getMessage
+}: ProcedureLogProps) => {
+  const logRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [events])
+
+  return (
+    <div style={styles.eventPanel}>
+      <div style={styles.eventPanelTitle}>
+        <span>Procedure Log</span>
+        {isLive && <Badge status="processing" text="live" style={{ marginLeft: 8, fontSize: 11 }} />}
+        {events.length > 0 && (
+          <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>({events.length})</Text>
+        )}
+      </div>
+      <div style={styles.eventLog} ref={logRef}>
+        {events.length === 0 ? (
+          <div style={styles.eventEmpty}>{emptyMessage}</div>
+        ) : (
+          events.map((event, i) => (
+            event.type === 'USER_PROMPT' ? (
+              <div key={i} style={styles.promptCard}>
+                <div style={styles.promptHeader}>
+                  <span style={styles.promptWarningIcon}>
+                    {event.dialogKey === 'DECISION' ? '?' : '⚠'}
+                  </span>
+                  <span style={styles.promptTitle}>
+                    {event.dialogKey === 'DECISION' ? 'DECISION REQUIRED' : 'WARNING'}
+                  </span>
+                  <span style={seqTagStyle(sequencerLabel(event.source))}>{sequencerLabel(event.source)}</span>
+                </div>
+                <div style={styles.promptBody}>
+                  <Text style={{ fontSize: 13 }}>{getMessage(event.messageId)}</Text>
+                </div>
+                {promptResponses[event.messageUuid] ? (
+                  <div style={styles.promptResolved}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      Operator responded: <strong>"{promptResponses[event.messageUuid]}"</strong>
+                    </Text>
+                  </div>
+                ) : event.dialogKey === 'DECISION' ? (
+                  <div style={styles.promptButtons}>
+                    <Button size="small" onClick={() => onPromptResponse(event.source, 'DECISION', event.messageId, event.messageUuid, 'Yes', 'YES', 'N/A')}>Yes</Button>
+                    <Button size="small" onClick={() => onPromptResponse(event.source, 'DECISION', event.messageId, event.messageUuid, 'No', 'NO', 'N/A')}>No</Button>
+                    <Button size="small" danger onClick={() => onPromptResponse(event.source, 'DECISION', event.messageId, event.messageUuid, 'Abort', 'ABORT', 'N/A')}>Abort</Button>
+                  </div>
+                ) : (
+                  <div style={styles.promptButtons}>
+                    <Button size="small" onClick={() => onPromptResponse(event.source, 'WARNING', event.messageId, event.messageUuid, 'Continue', 'N/A', 'CONTINUE')}>Continue</Button>
+                    <Button size="small" onClick={() => onPromptResponse(event.source, 'WARNING', event.messageId, event.messageUuid, 'Retry', 'N/A', 'RETRY')}>Retry</Button>
+                    <Button size="small" danger onClick={() => onPromptResponse(event.source, 'WARNING', event.messageId, event.messageUuid, 'Abort', 'N/A', 'ABORT')}>Abort</Button>
+                  </div>
+                )}
+                {promptPublishErrors[event.messageUuid] && (
+                  <div style={styles.promptResolved}>
+                    <Text type="danger" style={{ fontSize: 11 }}>
+                      Failed to send response: {promptPublishErrors[event.messageUuid]}
+                    </Text>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div key={i} style={styles.eventRow}>
+                <Text type="secondary" style={styles.eventTime}>{formatTime(event.eventTime)}</Text>
+                <Tag color={tagColor(event.type)} style={{ margin: 0, fontSize: 9 }}>{eventTypeLabel(event.type)}</Tag>
+                <span style={seqTagStyle(sequencerLabel(event.source))}>{sequencerLabel(event.source)}</span>
+                <Text style={{ fontSize: 11 }}>{getMessage(event.messageId)}</Text>
+              </div>
+            )
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -127,23 +259,23 @@ export const SequenceSubmitter = (): React.JSX.Element => {
   const [benchTab, setBenchTab] = useState<'LOWFS' | 'PSH' | 'PIT' | 'APT'>('PSH')
   const [progress, setProgress] = useState<number>(0)
   const [procedureNumber] = useState<number>(1)
-  const [exposureIteration] = useState<number>(0)
+  const [iterations, setIterations] = useState<number>(3)
 
-  const { events, error: eventError, clear: clearEvents } = useProcedureEvents(true)
+  // Startup events: everything before first ITERATION event
+  const [startupEvents, setStartupEvents] = useState<ApsProcedureEvent[]>([])
+  // Iteration tabs: one entry per ITERATION event received
+  const [iterationTabs, setIterationTabs] = useState<IterationTab[]>([])
+  // Tracks which iteration is currently active (-1 = startup)
+  const currentIterationRef = useRef<number>(-1)
+
+  const { events, totalReceived, error: eventError, clear: clearEvents } = useProcedureEvents(true)
   const { publishResponse } = usePublishUserPromptResponse()
   const { getMessage } = useMessages()
-  const eventLogRef = useRef<HTMLDivElement>(null)
 
-  // Tracks user responses to USER_PROMPT dialogs, keyed by the originating
-  // event's messageUuid (unique per prompt invocation - messageId itself is
-  // a stable, reused, human-readable string and is NOT a safe key here).
-  // Records the button label shown to the operator and tracks publish
-  // failures separately so the UI can offer a retry without losing the fact
-  // that the operator already clicked.
   const [promptResponses, setPromptResponses] = useState<Record<string, string>>({})
   const [promptPublishErrors, setPromptPublishErrors] = useState<Record<string, string>>({})
 
-  const handlePromptResponse = async (
+  const handlePromptResponse = useCallback(async (
     sourcePrefix: string,
     originatingPromptType: OriginatingPromptType,
     originatingMessageId: string,
@@ -166,8 +298,6 @@ export const SequenceSubmitter = (): React.JSX.Element => {
         errorResponse
       })
     } catch (e) {
-      // Publish failed - clear the recorded response so the buttons
-      // reappear, and surface the error so the operator can retry.
       setPromptResponses(prev => {
         const { [originatingMessageUuid]: _removed, ...rest } = prev
         return rest
@@ -177,34 +307,89 @@ export const SequenceSubmitter = (): React.JSX.Element => {
         [originatingMessageUuid]: e instanceof Error ? e.message : String(e)
       }))
     }
-  }
+  }, [publishResponse])
 
+  // processedCountRef tracks total events processed (monotonically increasing),
+  // independent of the capped events array length in the hook.
+  const processedCountRef = useRef<number>(0)
+
+  // Route each incoming event to the right bucket.
+  // Triggered by totalReceived (monotonic) not events.length (capped).
   useEffect(() => {
-    if (eventLogRef.current) {
-      eventLogRef.current.scrollTop = eventLogRef.current.scrollHeight
-    }
-  }, [events])
+    if (totalReceived === 0) return
+    // events array may be capped at MAX_EVENTS; compute how many new ones
+    // arrived since we last processed, then slice from the tail of the array.
+    const newCount = totalReceived - processedCountRef.current
+    if (newCount <= 0) return
+    const newEvents = events.slice(Math.max(0, events.length - newCount))
+    processedCountRef.current = totalReceived
 
-  // Derive procedure state for status bar
-  const procedureState: string = (() => {
-    switch (submitStatus) {
-      case 'loading': return 'Running'
-      case 'success': return 'Completed'
-      case 'error':   return 'Error'
-      default:        return 'Ready'
-    }
-  })()
+    // Process each new event in order so ITERATION events advance the cursor
+    // before subsequent events in the same batch get routed into the new tab
+    let localIteration = currentIterationRef.current
+    const newStartup: ApsProcedureEvent[] = []
+    const iterationAppends: Map<number, ApsProcedureEvent[]> = new Map()
+    const newTabs: number[] = []
+    let switchToTab: string | undefined
 
-  const procedureStateColor: string = (() => {
-    switch (submitStatus) {
-      case 'loading': return '#5de0e0'
-      case 'success': return '#52c41a'
-      case 'error':   return '#ff4d4f'
-      default:        return '#aaa'
+    for (const event of newEvents) {
+      if (event.type === 'ITERATION') {
+        const n = parseInt(event.messageId, 10)
+        localIteration = n
+        newTabs.push(n)
+        switchToTab = `iteration-${n}`
+      } else if (localIteration === -1) {
+        newStartup.push(event)
+      } else {
+        const bucket = iterationAppends.get(localIteration) ?? []
+        bucket.push(event)
+        iterationAppends.set(localIteration, bucket)
+      }
     }
-  })()
 
-  // ── Handlers — verbatim from working GitHub version ────────────────────────
+    currentIterationRef.current = localIteration
+
+    if (newStartup.length > 0)
+      setStartupEvents(prev => [...prev, ...newStartup])
+
+    if (newTabs.length > 0 || iterationAppends.size > 0) {
+      setIterationTabs(prev => {
+        let next = [...prev]
+        for (const n of newTabs) {
+          if (!next.find(t => t.n === n)) next = [...next, { n, events: [] }]
+        }
+        for (const [n, appended] of iterationAppends) {
+          next = next.map(t => t.n === n ? { ...t, events: [...t.events, ...appended] } : t)
+        }
+        return next
+      })
+    }
+
+    if (switchToTab) setActiveTab(switchToTab)
+  }, [events, totalReceived])
+
+  // Reset all per-run state when a new run starts
+  const resetRunState = useCallback(() => {
+    clearEvents()
+    setStartupEvents([])
+    setIterationTabs([])
+    currentIterationRef.current = -1
+    processedCountRef.current = 0
+    setPromptResponses({})
+    setPromptPublishErrors({})
+    setActiveTab('startup')
+  }, [clearEvents])
+
+  // Derive procedure state
+  const procedureState = submitStatus === 'loading' ? 'Running'
+    : submitStatus === 'success' ? 'Completed'
+    : submitStatus === 'error' ? 'Error' : 'Ready'
+
+  const procedureStateColor = submitStatus === 'loading' ? '#5de0e0'
+    : submitStatus === 'success' ? '#52c41a'
+    : submitStatus === 'error' ? '#ff4d4f' : '#aaa'
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
 
   const handleLoadTemplate = async () => {
     if (!configPath.trim()) return
@@ -240,7 +425,14 @@ export const SequenceSubmitter = (): React.JSX.Element => {
     try {
       const baseUrl = await getBackendUrl(locationService)
       if (!baseUrl) throw new Error('Backend not available')
-      const json = await buildSequence(baseUrl, templateJson)
+      const substitutions: SubstitutionParam[] = [
+        {
+          stepName:   'rbsfTakeExposureWhileProcessingPrevious',
+          paramName:  'exposureCount',
+          paramValue: iterations
+        }
+      ]
+      const json = await buildSequence(baseUrl, templateJson, substitutions)
       setBuiltSequenceJson(json)
       setBuildStatus('success')
     } catch (e) {
@@ -251,11 +443,10 @@ export const SequenceSubmitter = (): React.JSX.Element => {
 
   const handleSubmitSequence = async () => {
     if (!builtSequenceJson) return
-    clearEvents()
+    resetRunState()
     setSubmitStatus('loading')
     setSubmitError(undefined)
     setProgress(0)
-
     try {
       const componentId = new ComponentId(
         new Prefix('APS', 'apsPeasSequencerA_SoftwareOnlyMode'),
@@ -284,12 +475,143 @@ export const SequenceSubmitter = (): React.JSX.Element => {
     setProgress(0)
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Tab items ───────────────────────────────────────────────────────────────
+
+  const isLive = submitStatus === 'loading'
+
+  const staticTabs = [
+    {
+      key: 'setup',
+      label: 'Setup',
+      children: (
+        <div style={styles.tabPanel}>
+          <div style={styles.setupCard}>
+            <div style={styles.setupCardTitle}>Load Sequence Template</div>
+            <div style={styles.setupRow}>
+              <label style={styles.setupLabel}>Config Path</label>
+              <Input
+                placeholder="/aps/sequences/testmode.json"
+                value={configPath}
+                onChange={e => setConfigPath(e.target.value)}
+                onPressEnter={handleLoadTemplate}
+                disabled={loadStatus === 'loading'}
+                style={{ fontFamily: 'monospace', fontSize: 12 }}
+              />
+              <Button
+                type="primary"
+                onClick={handleLoadTemplate}
+                loading={loadStatus === 'loading'}
+                disabled={!configPath.trim()}
+              >
+                Load
+              </Button>
+            </div>
+            {loadError && <Alert type="error" message={loadError} showIcon style={{ marginTop: 10 }} />}
+            {eventError && <Alert type="error" message={`Event subscription: ${eventError}`} showIcon style={{ marginTop: 10 }} />}
+            {loadStatus === 'success' && templateJson && (
+              <div style={styles.setupJsonSection}>
+                <div style={styles.setupJsonLabel}>Template</div>
+                <TextArea
+                  readOnly
+                  rows={10}
+                  value={JSON.stringify(templateJson, null, 2)}
+                  style={{ fontFamily: 'monospace', fontSize: 11 }}
+                />
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <label style={styles.setupLabel}>Iterations</label>
+                  <InputNumber
+                    min={1} max={99}
+                    value={iterations}
+                    onChange={v => setIterations(v ?? 3)}
+                    style={{ width: 70 }}
+                  />
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Button
+                    type="primary"
+                    onClick={handleBuildSequence}
+                    loading={buildStatus === 'loading'}
+                  >
+                    Build Sequence
+                  </Button>
+                  {buildStatus === 'success' && (
+                    <span style={{ fontSize: 12, color: '#52c41a' }}>✓ Sequence built</span>
+                  )}
+                </div>
+                {buildError && <Alert type="error" message={buildError} showIcon style={{ marginTop: 10 }} />}
+              </div>
+            )}
+            {buildStatus === 'success' && builtSequenceJson && (
+              <div style={styles.setupJsonSection}>
+                <div style={styles.setupJsonLabel}>Built Sequence</div>
+                <TextArea
+                  readOnly
+                  rows={10}
+                  value={JSON.stringify(builtSequenceJson, null, 2)}
+                  style={{ fontFamily: 'monospace', fontSize: 11 }}
+                />
+                <Button
+                  type="primary"
+                  onClick={() => setActiveTab('startup')}
+                  style={{ marginTop: 12 }}
+                >
+                  Go to Run Procedure →
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'startup',
+      label: 'Startup',
+      disabled: !builtSequenceJson,
+      children: (
+        <div style={styles.runLayout}>
+          <ProcedureLog
+            events={startupEvents}
+            isLive={isLive}
+            emptyMessage={submitStatus === 'idle'
+              ? 'Press Start to begin the procedure.'
+              : 'Waiting for procedure events…'}
+            promptResponses={promptResponses}
+            promptPublishErrors={promptPublishErrors}
+            onPromptResponse={handlePromptResponse}
+            getMessage={getMessage}
+          />
+          {/* No exposure panel in startup tab */}
+          <div style={{ flex: 1 }} />
+        </div>
+      )
+    },
+  ]
+
+  const iterationTabItems = iterationTabs.map(({ n, events: itEvents }) => ({
+    key: `iteration-${n}`,
+    label: n === 0 ? 'Align Completion' : `Iteration ${n}`,
+    children: (
+      <div style={styles.runLayout}>
+        <ProcedureLog
+          events={itEvents}
+          isLive={isLive && currentIterationRef.current === n}
+          emptyMessage="Waiting for events…"
+          promptResponses={promptResponses}
+          promptPublishErrors={promptPublishErrors}
+          onPromptResponse={handlePromptResponse}
+          getMessage={getMessage}
+        />
+        <ExposurePanel />
+      </div>
+    )
+  }))
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div style={styles.root}>
 
-      {/* ── Top status bar (dark) ── */}
+      {/* ── Top status bar ── */}
       <div style={styles.topBar}>
         <div style={styles.topBarBrand}>
           <span style={styles.brandName}>APS PEAS</span>
@@ -315,18 +637,20 @@ export const SequenceSubmitter = (): React.JSX.Element => {
         </div>
       </div>
 
-      {/* ── Main layout (light) ── */}
+      {/* ── Main layout ── */}
       <div style={styles.mainLayout}>
 
         {/* ── Left sidebar ── */}
         <div style={styles.sidebar}>
-
-          {/* Status and Control */}
           <div style={styles.sidePanel}>
             <div style={styles.sidePanelTitle}>Status and Control</div>
             <div style={styles.sidePanelBody}>
               <BenchField label="Procedure #" value={String(procedureNumber)} />
-              <BenchField label="Exposure Iteration" value={String(exposureIteration)} />
+              <BenchField label="Iteration" value={
+                currentIterationRef.current === -1 ? '—'
+                : currentIterationRef.current === 0 ? 'Completion'
+                : String(currentIterationRef.current)
+              } />
 
               <div style={styles.progressContainer}>
                 <div style={styles.progressTrack}>
@@ -368,7 +692,6 @@ export const SequenceSubmitter = (): React.JSX.Element => {
             </div>
           </div>
 
-          {/* Bench & Controller State */}
           <div style={{ ...styles.sidePanel, marginTop: 10 }}>
             <div style={styles.sidePanelTitle}>APS Bench and Controller State</div>
             <div style={styles.sidePanelBody}>
@@ -406,227 +729,10 @@ export const SequenceSubmitter = (): React.JSX.Element => {
             onChange={setActiveTab}
             style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
             tabBarStyle={{ paddingLeft: 16, marginBottom: 0, background: '#fff', borderBottom: '1px solid #e0e0e0' }}
-            items={[
-              {
-                key: 'setup',
-                label: 'Setup',
-                children: (
-                  <div style={styles.tabPanel}>
-                    <div style={styles.setupCard}>
-                      <div style={styles.setupCardTitle}>Load Sequence Template</div>
-                      <div style={styles.setupRow}>
-                        <label style={styles.setupLabel}>Config Path</label>
-                        <Input
-                          placeholder="/aps/sequences/testmode.json"
-                          value={configPath}
-                          onChange={e => setConfigPath(e.target.value)}
-                          onPressEnter={handleLoadTemplate}
-                          disabled={loadStatus === 'loading'}
-                          style={{ fontFamily: 'monospace', fontSize: 12 }}
-                        />
-                        <Button
-                          type="primary"
-                          onClick={handleLoadTemplate}
-                          loading={loadStatus === 'loading'}
-                          disabled={!configPath.trim()}
-                        >
-                          Load
-                        </Button>
-                      </div>
-                      {loadError && <Alert type="error" message={loadError} showIcon style={{ marginTop: 10 }} />}
-                      {eventError && <Alert type="error" message={`Event subscription: ${eventError}`} showIcon style={{ marginTop: 10 }} />}
-                      {loadStatus === 'success' && templateJson && (
-                        <div style={styles.setupJsonSection}>
-                          <div style={styles.setupJsonLabel}>Template</div>
-                          <TextArea
-                            readOnly
-                            rows={10}
-                            value={JSON.stringify(templateJson, null, 2)}
-                            style={{ fontFamily: 'monospace', fontSize: 11 }}
-                          />
-                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Button
-                              type="primary"
-                              onClick={handleBuildSequence}
-                              loading={buildStatus === 'loading'}
-                            >
-                              Build Sequence
-                            </Button>
-                            {buildStatus === 'success' && (
-                              <span style={{ fontSize: 12, color: '#52c41a' }}>✓ Sequence built</span>
-                            )}
-                          </div>
-                          {buildError && <Alert type="error" message={buildError} showIcon style={{ marginTop: 10 }} />}
-                        </div>
-                      )}
-                      {buildStatus === 'success' && builtSequenceJson && (
-                        <div style={styles.setupJsonSection}>
-                          <div style={styles.setupJsonLabel}>Built Sequence</div>
-                          <TextArea
-                            readOnly
-                            rows={10}
-                            value={JSON.stringify(builtSequenceJson, null, 2)}
-                            style={{ fontFamily: 'monospace', fontSize: 11 }}
-                          />
-                          <Button
-                            type="primary"
-                            onClick={() => setActiveTab('run')}
-                            style={{ marginTop: 12 }}
-                          >
-                            Go to Run Procedure →
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              },
-              {
-                key: 'run',
-                label: 'Run Procedure',
-                disabled: !builtSequenceJson,
-                children: (
-                  <div style={styles.runLayout}>
-
-                    {/* Event log */}
-                    <div style={styles.eventPanel}>
-                      <div style={styles.eventPanelTitle}>
-                        <span>Procedure Log</span>
-                        {submitStatus === 'loading' && (
-                          <Badge status="processing" text="live" style={{ marginLeft: 8, fontSize: 11 }} />
-                        )}
-                        {events.length > 0 && (
-                          <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                            ({events.length})
-                          </Text>
-                        )}
-                      </div>
-                      <div style={styles.eventLog} ref={eventLogRef}>
-                        {events.length === 0 ? (
-                          <div style={styles.eventEmpty}>
-                            {submitStatus === 'idle'
-                              ? 'Press Start to begin the procedure.'
-                              : 'Waiting for procedure events…'}
-                          </div>
-                        ) : (
-                          events.map((event, i) => (
-                            event.type === 'USER_PROMPT' ? (
-                              <div key={i} style={styles.promptCard}>
-                                <div style={styles.promptHeader}>
-                                  <span style={styles.promptWarningIcon}>
-                                    {event.dialogKey === 'DECISION' ? '?' : '⚠'}
-                                  </span>
-                                  <span style={styles.promptTitle}>
-                                    {event.dialogKey === 'DECISION' ? 'DECISION REQUIRED' : 'WARNING'}
-                                  </span>
-                                  <span style={seqTagStyle(sequencerLabel(event.source))}>{sequencerLabel(event.source)}</span>
-                                </div>
-                                <div style={styles.promptBody}>
-                                  <Text style={{ fontSize: 13 }}>{getMessage(event.messageId)}</Text>
-                                </div>
-                                {promptResponses[event.messageUuid] ? (
-                                  <div style={styles.promptResolved}>
-                                    <Text type="secondary" style={{ fontSize: 11 }}>
-                                      Operator responded: <strong>"{promptResponses[event.messageUuid]}"</strong>
-                                    </Text>
-                                  </div>
-                                ) : event.dialogKey === 'DECISION' ? (
-                                  <div style={styles.promptButtons}>
-                                    <Button size="small" onClick={() => handlePromptResponse(
-                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'Yes', 'YES', 'N/A'
-                                    )}>Yes</Button>
-                                    <Button size="small" onClick={() => handlePromptResponse(
-                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'No', 'NO', 'N/A'
-                                    )}>No</Button>
-                                    <Button size="small" danger onClick={() => handlePromptResponse(
-                                      event.source, 'DECISION', event.messageId, event.messageUuid, 'Abort', 'ABORT', 'N/A'
-                                    )}>Abort</Button>
-                                  </div>
-                                ) : (
-                                  <div style={styles.promptButtons}>
-                                    <Button size="small" onClick={() => handlePromptResponse(
-                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Continue', 'N/A', 'CONTINUE'
-                                    )}>Continue</Button>
-                                    <Button size="small" onClick={() => handlePromptResponse(
-                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Retry', 'N/A', 'RETRY'
-                                    )}>Retry</Button>
-                                    <Button size="small" danger onClick={() => handlePromptResponse(
-                                      event.source, 'WARNING', event.messageId, event.messageUuid, 'Abort', 'N/A', 'ABORT'
-                                    )}>Abort</Button>
-                                  </div>
-                                )}
-                                {promptPublishErrors[event.messageUuid] && (
-                                  <div style={styles.promptResolved}>
-                                    <Text type="danger" style={{ fontSize: 11 }}>
-                                      Failed to send response: {promptPublishErrors[event.messageUuid]}
-                                    </Text>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div key={i} style={styles.eventRow}>
-                                <Text type="secondary" style={styles.eventTime}>
-                                  {event.eventTime.includes('T')
-                                    ? event.eventTime.split('T')[1].slice(0, 12)
-                                    : event.eventTime}
-                                </Text>
-                                <Tag color={tagColor(event.type)} style={{ margin: 0, fontSize: 9 }}>
-                                  {eventTypeLabel(event.type)}
-                                </Tag>
-                                <span style={seqTagStyle(sequencerLabel(event.source))}>
-                                  {sequencerLabel(event.source)}
-                                </span>
-                                <Text style={{ fontSize: 11 }}>{getMessage(event.messageId)}</Text>
-                              </div>
-                            )
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Exposure display */}
-                    <div style={styles.exposurePanel}>
-                      <Tabs
-                        size="small"
-                        tabBarStyle={{ paddingLeft: 8, marginBottom: 0, background: '#fafafa', borderBottom: '1px solid #e0e0e0' }}
-                        items={['Exposure', 'Centroids', 'Centroid Offsets'].map(t => ({
-                          key: t, label: t, children: null
-                        }))}
-                      />
-                      <div style={styles.exposureImageArea}>
-                        <div style={styles.exposureFilename}>18JUL2034_PSH_BBP_001_1B.FTS</div>
-                        <div style={{ ...styles.exposureImageWrap, position: 'relative' }}>
-                          <img
-                            src={exposurePlaceholderImg}
-                            alt="PSH exposure"
-                            style={styles.exposureImage}
-                          />
-                          <div style={styles.expandIcon} title="Expand to full screen">
-                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              {/* top-left */}
-                              <polyline points="7,2 2,2 2,7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
-                              {/* top-right */}
-                              <polyline points="13,2 18,2 18,7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
-                              {/* bottom-left */}
-                              <polyline points="2,13 2,18 7,18" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
-                              {/* bottom-right */}
-                              <polyline points="18,13 18,18 13,18" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.85"/>
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                      <div style={styles.exposureFooter}>
-                        <span style={styles.exposureFooterText}>pos: (–, –)</span>
-                        <span style={styles.exposureFooterText}>Median Peak Intensity: –</span>
-                      </div>
-                    </div>
-
-                  </div>
-                )
-              }
-            ]}
+            items={[...staticTabs, ...iterationTabItems]}
           />
         </div>
+
       </div>
     </div>
   )
@@ -645,8 +751,6 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     color: '#222',
   },
-
-  // ── Top bar (dark) ──
   topBar: {
     display: 'flex',
     alignItems: 'center',
@@ -657,9 +761,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     gap: 24,
   },
-  topBarBrand: {
-    flexShrink: 0,
-  },
+  topBarBrand: { flexShrink: 0 },
   brandName: {
     fontSize: 18,
     fontWeight: 700,
@@ -717,15 +819,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     letterSpacing: '0.04em',
   },
-
-  // ── Layout ──
-  mainLayout: {
-    display: 'flex',
-    flex: 1,
-    overflow: 'hidden',
-  },
-
-  // ── Sidebar (light) ──
+  mainLayout: { display: 'flex', flex: 1, overflow: 'hidden' },
   sidebar: {
     width: 220,
     flexShrink: 0,
@@ -750,9 +844,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fafafa',
     borderBottom: '1px solid #e0e0e0',
   },
-  sidePanelBody: {
-    padding: '8px 10px',
-  },
+  sidePanelBody: { padding: '8px 10px' },
   benchField: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -760,27 +852,15 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '3px 0',
     borderBottom: '1px solid #f0f0f0',
   },
-  benchFieldLabel: {
-    fontSize: 11,
-    color: '#888',
-    flexShrink: 0,
-    marginRight: 6,
-  },
+  benchFieldLabel: { fontSize: 11, color: '#888', flexShrink: 0, marginRight: 6 },
   benchFieldValue: {
     fontSize: 11,
     color: '#333',
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     textAlign: 'right' as const,
   },
-  benchDivider: {
-    borderTop: '1px solid #e0e0e0',
-    margin: '6px 0',
-  },
-  benchTabs: {
-    display: 'flex',
-    gap: 3,
-    marginBottom: 8,
-  },
+  benchDivider: { borderTop: '1px solid #e0e0e0', margin: '6px 0' },
+  benchTabs: { display: 'flex', gap: 3, marginBottom: 8 },
   benchTabBtn: {
     flex: 1,
     padding: '3px 0',
@@ -792,17 +872,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 3,
     cursor: 'pointer',
   },
-  benchTabActive: {
-    background: '#e6f4ff',
-    borderColor: '#1677ff',
-    color: '#1677ff',
-  },
-  progressContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    margin: '8px 0',
-  },
+  benchTabActive: { background: '#e6f4ff', borderColor: '#1677ff', color: '#1677ff' },
+  progressContainer: { display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' },
   progressTrack: {
     flex: 1,
     height: 6,
@@ -824,19 +895,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: 32,
     textAlign: 'right' as const,
   },
-  controlButtons: {
-    display: 'flex',
-    gap: 6,
-    margin: '8px 0',
-  },
-  sequencerViewLink: {
-    fontSize: 11,
-    color: '#1677ff',
-    cursor: 'pointer',
-    marginTop: 4,
-  },
-
-  // ── Content ──
+  controlButtons: { display: 'flex', gap: 6, margin: '8px 0' },
+  sequencerViewLink: { fontSize: 11, color: '#1677ff', cursor: 'pointer', marginTop: 4 },
   content: {
     flex: 1,
     display: 'flex',
@@ -844,13 +904,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     background: '#f5f5f5',
   },
-  tabPanel: {
-    flex: 1,
-    overflowY: 'auto' as const,
-    padding: 20,
-  },
-
-  // ── Setup tab ──
+  tabPanel: { flex: 1, overflowY: 'auto' as const, padding: 20 },
   setupCard: {
     background: '#fff',
     border: '1px solid #e0e0e0',
@@ -866,22 +920,9 @@ const styles: Record<string, React.CSSProperties> = {
     paddingBottom: 10,
     borderBottom: '1px solid #f0f0f0',
   },
-  setupRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-  },
-  setupLabel: {
-    fontSize: 13,
-    color: '#555',
-    flexShrink: 0,
-    width: 80,
-  },
-  setupJsonSection: {
-    marginTop: 18,
-    borderTop: '1px solid #f0f0f0',
-    paddingTop: 14,
-  },
+  setupRow: { display: 'flex', alignItems: 'center', gap: 10 },
+  setupLabel: { fontSize: 13, color: '#555', flexShrink: 0, width: 80 },
+  setupJsonSection: { marginTop: 18, borderTop: '1px solid #f0f0f0', paddingTop: 14 },
   setupJsonLabel: {
     fontSize: 12,
     color: '#888',
@@ -890,16 +931,12 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   },
-
-  // ── Run tab ──
   runLayout: {
     flex: 1,
     display: 'flex',
     overflow: 'hidden',
     height: 'calc(100vh - 52px - 44px)',
   },
-
-  // Event log
   eventPanel: {
     width: 450,
     flexShrink: 0,
@@ -921,17 +958,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
   },
-  eventLog: {
-    flex: 1,
-    overflowY: 'auto' as const,
-    padding: '4px 0',
-  },
-  eventEmpty: {
-    padding: '20px 14px',
-    color: '#bbb',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
+  eventLog: { flex: 1, overflowY: 'auto' as const, padding: '4px 0' },
+  eventEmpty: { padding: '20px 14px', color: '#bbb', fontSize: 12, fontStyle: 'italic' },
   eventRow: {
     display: 'flex',
     alignItems: 'baseline',
@@ -945,8 +973,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     flexShrink: 0,
   },
-
-  // USER_PROMPT inline dialog
   promptCard: {
     margin: '8px 14px',
     border: '1px solid #d9d9d9',
@@ -962,10 +988,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fafafa',
     borderBottom: '1px solid #f0f0f0',
   },
-  promptWarningIcon: {
-    fontSize: 16,
-    color: '#faad14',
-  },
+  promptWarningIcon: { fontSize: 16, color: '#faad14' },
   promptTitle: {
     fontSize: 11,
     fontWeight: 700,
@@ -974,9 +997,7 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase' as const,
     flex: 1,
   },
-  promptBody: {
-    padding: '10px 12px',
-  },
+  promptBody: { padding: '10px 12px' },
   promptButtons: {
     display: 'flex',
     gap: 8,
@@ -989,8 +1010,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid #f0f0f0',
     background: '#fafafa',
   },
-
-  // Exposure panel
   exposurePanel: {
     flex: 1,
     display: 'flex',

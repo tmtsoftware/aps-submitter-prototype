@@ -16,17 +16,29 @@ const APS_PROCEDURE_EVENT_KEYS = new Set([
   new EventKey(
     Prefix.fromString('APS.apsPeasSequencerB_SoftwareOnlyMode'),
     PROCEDURE_EVENT_NAME
+  ),
+  new EventKey(
+    Prefix.fromString('APS.apsPeasSequencerC_SoftwareOnlyMode'),
+    PROCEDURE_EVENT_NAME
+  ),
+  new EventKey(
+    Prefix.fromString('APS.apsPeasSequencerD_SoftwareOnlyMode'),
+    PROCEDURE_EVENT_NAME
   )
 ])
 
-const MAX_EVENTS = 100
+const MAX_EVENTS = 2000
 
 export const useProcedureEvents = (active: boolean) => {
   const [events, setEvents] = useState<ApsProcedureEvent[]>([])
+  const [totalReceived, setTotalReceived] = useState<number>(0)
   const [error, setError] = useState<string | undefined>(undefined)
   const subscriptionRef = useRef<Subscription | undefined>(undefined)
 
-  const clear = () => setEvents([])
+  const clear = () => {
+    setEvents([])
+    setTotalReceived(0)
+  }
 
   useEffect(() => {
     if (!active) {
@@ -52,6 +64,7 @@ export const useProcedureEvents = (active: boolean) => {
             const decoded = decodeApsProcedureEvent(event)
             console.log('DECODED:', decoded)
             if (!decoded) return
+            setTotalReceived(prev => prev + 1)
             setEvents((prev) => {
               const updated = [...prev, decoded]
               return updated.length > MAX_EVENTS
@@ -87,5 +100,5 @@ export const useProcedureEvents = (active: boolean) => {
     }
   }, [active])
 
-  return { events, error, clear }
+  return { events, totalReceived, error, clear }
 }

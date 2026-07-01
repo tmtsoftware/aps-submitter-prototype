@@ -1,0 +1,35 @@
+[
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "takeGoodExposureAndFindCentroids",
+    "paramSet": [
+      {
+        "FloatKey": {
+          "keyName": "integrationTime",
+          "values": [1.0],
+          "units": "second"
+        }
+      },
+      {
+        "StringKey": {
+          "keyName": "d1SerializedSequence",
+          "values": ["REF:/aps/sequences/common-d1-rbsf.json"],
+          "units": "NoUnits"
+        }
+      }
+    ]
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "calcImageAndPrOffsets",
+    "paramSet": []
+  },
+  {
+    "_type": "Setup",
+    "source": "APS.sequenceSubmitter",
+    "commandName": "correctPitTracking",
+    "paramSet": []
+  }
+]
